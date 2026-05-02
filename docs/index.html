@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>参考文献スクロール カスタム＆録画ツール</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      display: flex;
+      gap: 40px;
+    }
+    
+    /* プレビュー画面（右側）の設定 */
+    .preview-area {
+      padding: 20px;
+      background: #f0f0f0;
+      border-radius: 8px;
+    }
+    .scroll-container {
+      width: 400px;
+      height: 40px;
+      overflow: hidden;
+      position: relative;
+      background: #fff;
+      border: 1px solid #333;
+    }
+    .scroll-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .scroll-list li {
+      height: 40px;
+      line-height: 40px;
+      padding: 0 10px;
+      box-sizing: border-box;
+      white-space: nowrap;
+    }
+
+    /* 操作パネル（左側）の設定 */
+    .control-panel {
+      width: 450px;
+    }
+    .control-group {
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid #ddd;
+    }
+    .manage-list {
+      list-style: none;
+      padding: 0;
+    }
+    .manage-list li {
+      margin-bottom: 5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #f9f9f9;
+      padding: 5px;
+      border: 1px solid #eee;
+    }
+    .action-btns button {
+      cursor: pointer;
+      margin-left: 5px;
+    }
+    
+    .record-btn {
+      background-color: #ff4757;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .record-btn:hover { background-color: #ff6b81; }
+    .recording-status {
+      color: #ff4757;
+      font-weight: bold;
+      display: none;
+      margin-top: 10px;
+      animation: blink 1s infinite alternate;
+    }
+    @keyframes blink { from { opacity: 1; } to { opacity: 0.3; } }
+  </style>
+  
+  <style id="dynamic-styles"></style>
+</head>
+<body>
+
+  <!-- 左側：操作パネル -->
+  <div class="control-panel">
+    <h3>⚙️ 設定パネル</h3>
+    
+    <div class="control-group">
+      <label><b>アニメーション設定</b></label><br>
+      <label>スクロールにかかる時間: <span id="speed-val">0.5</span>秒</label><br>
+      <input type="range" id="speed-slider" min="0.1" max="2.0" step="0.1" value="0.5" style="width: 100%;"><br><br>
+      
+      <label>1行あたりのストップ時間: <span id="pause-val">2.0</span>秒</label><br>
+      <input type="range" id="pause-slider" min="0.5" max="5.0" step="0.5" value="2.0" style="width: 100%;">
+    </div>
+
+    <div class="control-group">
+      <label><b>参考文献の追加・並び替え</b></label><br>
+      <input type="text" id="new-item" style="width: 70%;" placeholder="新しい参考文献を入力">
+      <button id="add-btn">追加</button>
+      <ul id="manage-list" class="manage-list" style="margin-top: 15px;"></ul>
+    </div>
+
+    <div class="control-group">
+      <label><b>動画として書き出し</b></label><br>
+      <p style="font-size: 12px; color: #555;">※クリックするとブラウザの画面共有ダイアログが出ます。「このタブ」を選択して録画を開始し、1周したら「共有を停止」を押すと自動でダウンロードされます。</p>
+      <button id="record-btn" class="record-btn">⏺ 動画を録画して保存 (WebM)</button>
+      <div id="recording-status" class="recording-status">録画中...（終了するにはブラウザの「共有を停止」をクリック）</div>
+    </div>
+  </div>
+
+  <!-- 右側：プレビュー画面 -->
+  <div class="preview-area">
+    <h3>👀 プレビュー</h3>
+    <div class="scroll-container">
+      <ul id="scroll-list" class="scroll-list"></ul>
+    </div>
+  </div>
+
+  <script>
+    let references = [
+      "[1] 参考文献A: ロボット工学の基礎",
+      "[2] 参考文献B: 強化学習の応用",
+      "[3] 参考文献C: 物理シミュレーションの実践"
+    ];
+
+    const speedSlider = document.getElementById('speed-slider');
+    const pauseSlider = document.getElementById('pause-slider');
+    const speedVal = document.getElementById('speed-val');
+    const pauseVal = document.getElementById('pause-val');
+
+    function updateAll() {
+      renderManageList();
+      renderScrollList();
+      updateAnimation();
+    }
+
+    // --- 並び替え機能を追加したリスト描画 ---
+    function renderManageList() {
+      const list = document.getElementById('manage-list');
+      list.innerHTML = '';
+      references.forEach((ref, index) => {
+        const li = document.createElement('li');
+        li.textContent = ref;
+        
+        const btnContainer = document.createElement('div');
+        btnContainer.className = 'action-btns';
+
+        // 上へ移動ボタン
+        const upBtn = document.createElement('button');
+        upBtn.textContent = '↑';
+        upBtn.disabled = index === 0; // 一番上なら無効化
+        upBtn.onclick = () => {
+          [references[index - 1], references[index]] = [references[index], references[index - 1]];
+          updateAll();
+        };
+
+        // 下へ移動ボタン
+        const downBtn = document.createElement('button');
+        downBtn.textContent = '↓';
+        downBtn.disabled = index === references.length - 1; // 一番下なら無効化
+        downBtn.onclick = () => {
+          [references[index], references[index + 1]] = [references[index + 1], references[index]];
+          updateAll();
+        };
+
+        // 削除ボタン
+        const delBtn = document.createElement('button');
+        delBtn.textContent = '削除';
+        delBtn.onclick = () => {
+          references.splice(index, 1);
+          updateAll();
+        };
+
+        btnContainer.appendChild(upBtn);
+        btnContainer.appendChild(downBtn);
+        btnContainer.appendChild(delBtn);
+        li.appendChild(btnContainer);
+        list.appendChild(li);
+      });
+    }
+
+    function renderScrollList() {
+      const list = document.getElementById('scroll-list');
+      list.innerHTML = '';
+      if (references.length === 0) return;
+
+      references.forEach(ref => {
+        const li = document.createElement('li');
+        li.textContent = ref;
+        list.appendChild(li);
+      });
+      const clone = document.createElement('li');
+      clone.textContent = references[0];
+      list.appendChild(clone);
+    }
+
+    function updateAnimation() {
+      const styleEl = document.getElementById('dynamic-styles');
+      const numItems = references.length;
+      if (numItems === 0) { styleEl.textContent = ''; return; }
+
+      const speed = parseFloat(speedSlider.value);
+      const pause = parseFloat(pauseSlider.value);
+      const timePerLine = speed + pause;
+      const totalDuration = numItems * timePerLine;
+      let keyframes = `@keyframes dynamicScroll {\n`;
+
+      for (let i = 0; i < numItems; i++) {
+        const startTime = i * timePerLine;
+        const startPercent = (startTime / totalDuration) * 100;
+        const endPauseTime = startTime + pause;
+        const endPausePercent = (endPauseTime / totalDuration) * 100;
+        keyframes += `  ${startPercent.toFixed(2)}%, ${endPausePercent.toFixed(2)}% { transform: translateY(-${i * 40}px); }\n`;
+      }
+      keyframes += `  100% { transform: translateY(-${numItems * 40}px); }\n}`;
+      styleEl.textContent = `.scroll-list { animation: dynamicScroll ${totalDuration}s linear infinite; } ${keyframes}`;
+    }
+
+    // --- 動画録画機能（Screen Capture API） ---
+    document.getElementById('record-btn').addEventListener('click', async () => {
+      try {
+        // 画面キャプチャの許可をユーザーに求める
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { displaySurface: "browser" },
+          audio: false
+        });
+
+        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+        const chunks = [];
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunks.push(e.data);
+        };
+
+        // 録画が停止した時の処理（ファイル保存）
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(chunks, { type: 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'bibliography_scroll.webm'; // 保存されるファイル名
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          
+          // UIを元に戻す
+          document.getElementById('recording-status').style.display = 'none';
+          document.getElementById('record-btn').disabled = false;
+          
+          // カメラ/マイクのトラックを完全に閉じる
+          stream.getTracks().forEach(track => track.stop());
+        };
+
+        // 録画開始
+        mediaRecorder.start();
+        document.getElementById('recording-status').style.display = 'block';
+        document.getElementById('record-btn').disabled = true;
+
+      } catch (err) {
+        console.error("録画がキャンセルされたか、エラーが発生しました: ", err);
+      }
+    });
+
+    speedSlider.addEventListener('input', (e) => { speedVal.textContent = parseFloat(e.target.value).toFixed(1); updateAnimation(); });
+    pauseSlider.addEventListener('input', (e) => { pauseVal.textContent = parseFloat(e.target.value).toFixed(1); updateAnimation(); });
+    
+    document.getElementById('add-btn').addEventListener('click', () => {
+      const input = document.getElementById('new-item');
+      if (input.value.trim() !== '') {
+        references.push(input.value);
+        input.value = '';
+        updateAll();
+      }
+    });
+
+    updateAll();
+  </script>
+</body>
+</html>
